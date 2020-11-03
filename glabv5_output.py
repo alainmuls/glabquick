@@ -3,6 +3,8 @@
 import sys
 import numpy as np
 import pandas as pd
+import datetime as dt
+import utm
 
 
 def wavg(group: dict, avg_name: str, weight_name: str) -> float:
@@ -28,16 +30,25 @@ def stddev(crd: pd.Series, avgCrd: float) -> float:
     return dCrd.std()
 
 
-ECEF = ['Rx_X', 'Rx_Y', 'Rx_Z']
-DeltaECEF = ['Rx_DeltaX', 'Rx_DeltaY', 'Rx_DeltaZ']
-dECEF = ['Rx_dX', 'Rx_dY', 'Rx_dZ']
-LLH = ['Rx_lat', 'Rx_lon', 'Rx_ellh']
-DeltaNEU = ['Rx_DeltaN', 'Rx_DeltaE', 'Rx_DeltaU']
-dNEU = ['Rx_dN', 'Rx_dE', 'Rx_dU']
+def make_datetime(year: float, doy: float, sod: float) -> dt.datetime:
+    """
+    converts the YYYY, DoY and Time to a datetime
+    """
+    return dt.datetime.strptime('{:d} {:d} {!s}'.format(int(year), int(doy), pd.to_datetime(sod, unit='s', errors='coerce').time()), '%Y %j %H:%M:%S')
+
+
+
+ECEF = ['X', 'Y', 'Z']
+DeltaECEF = ['DeltaX', 'DeltaY', 'DeltaZ']
+dECEF = ['dX', 'dY', 'dZ']
+LLH = ['lat', 'lon', 'ellh']
+DeltaNEU = ['DeltaN', 'DeltaE', 'DeltaU']
+dNEU = ['dN', 'dE', 'dU']
 XDOP = ['GDOP', 'PDOP', 'TDOP', 'HDOP', 'VDOP']
 Tropo = ['inc', 'exc', 'err']
+UTM = ['UTM.N', 'UTM.E', 'Zone']
 
-col_names = ['OUTPUT', 'Year', 'Doy', 'sod', 'convergence'] +  ECEF + DeltaECEF + dECEF + LLH + DeltaNEU + dNEU + XDOP + Tropo + ['#SVs', 'ProcMode']
+col_names = ['OUTPUT', 'year', 'doy', 'sod', 'convergence'] +  ECEF + DeltaECEF + dECEF + LLH + DeltaNEU + dNEU + XDOP + Tropo + ['#SVs', 'ProcMode']
 # print(col_names)
 # sys.exit(5)
 
@@ -46,20 +57,30 @@ cvs_output_name = input("Enter name of CSV glab v5 MESSAGE OUTPUT file: ")
 
 try:
     df_output = pd.read_csv(cvs_output_name, names=col_names, header=0, delim_whitespace=True)
+
+    # remove columns
+    df_output.drop('OUTPUT', axis=1, inplace=True)
+    df_output.drop(DeltaECEF, axis=1, inplace=True)
+    df_output.drop(DeltaNEU, axis=1, inplace=True)
+
+    # add datetime column
+    df_output['DT'] = df_output.apply(lambda x: make_datetime(x['year'], x['doy'], x['sod']), axis=1)
+
+    # add UTM coordinates
+    df_output['UTM.E'], df_output['UTM.N'], Zone, Letter = utm.from_latlon(df_output['lat'].to_numpy(), df_output['lon'].to_numpy())
+    df_output['Zone'] = '{!s}{!s}'.format(Zone, Letter)
+
+    print(df_output.head(n=10))
+    print(df_output.tail(n=10))
 except IOError:
     print('Could not find {file:s}.'.format(cvs_output_name))
     sys.exit(1)
-
-# remove column 'OUTPUT'
-df_output.drop(col_names[0], axis=1, inplace=True)
-
-# print(df_output[DeltaNEU + dNEU])
 
 # List unique values in the ProcMode column "0 -> SPP, 1 -> PPP, 2 -> SBAS, 3 -> DGNSS"
 dProcModes = {0: 'SPP', 1: 'PPP', 2: 'SBAS', 3: 'DGNSS'}
 # proc_modes = df_output.ProcMode.unique()
 print('Processing modes observed:')
-proc_modes = df_output[col_names[-1]].value_counts()
+proc_modes = df_output['ProcMode'].value_counts()
 
 # calculate the weighted average of cartesian, geodetic and NEU data for each observed mode
 for mode, count in proc_modes.iteritems():
@@ -80,8 +101,15 @@ for mode, count in proc_modes.iteritems():
         dwavg[llh] = wavg(group=df_output.loc[mode_idx], avg_name=llh, weight_name=dneu)
         dstddev[dneu] = stddev(df_output.loc[mode_idx][dneu], dwavg[(llh)])
 
-    for i, (ecef, decef, llh, dneu) in enumerate(zip(ECEF, dECEF, LLH, dNEU)):
+    for utmcrd, dcrd in zip(UTM[:2], dNEU[:2]):
+        dwavg[utmcrd] = wavg(group=df_output.loc[mode_idx], avg_name=utmcrd, weight_name=dcrd)
+        dstddev[dcrd] = stddev(df_output.loc[mode_idx][dcrd], dwavg[(utmcrd)])
+
+    for i, (ecef, decef, llh, dllh, utmcrd, dcrd) in enumerate(zip(ECEF, dECEF, LLH, dNEU, UTM, dNEU)):
         if i < 2:
-            print('      {ecef:s} = {wavg:13.3f} +-{stddev:.3f}   {llh:7s} = {crd:15.9f} +-{ecart:.3f}'.format(ecef=ecef, wavg=dwavg[ecef], stddev=dstddev[decef], llh=llh, crd=dwavg[llh], ecart=dstddev[dneu]))
+            print('      {ecef:s} = {wavg:13.3f} +-{stddev:.3f}   {llh:7s} = {crd:15.9f} +-{ecart:.3f}   {utm:s} = {utmavg:13.3f} +- {utmdev:.3f}'.format(ecef=ecef, wavg=dwavg[ecef], stddev=dstddev[decef], llh=llh, crd=dwavg[llh], ecart=dstddev[dllh], utm=utmcrd, utmavg=dwavg[utmcrd], utmdev=dstddev[dcrd]))
         else:
-            print('      {ecef:s} = {wavg:13.3f} +-{stddev:.3f}   {llh:7s} = {crd:15.3f} +-{ecart:.3f}'.format(ecef=ecef, wavg=dwavg[ecef], stddev=dstddev[decef], llh=llh, crd=dwavg[llh], ecart=dstddev[dneu]))
+            print('      {ecef:s} = {wavg:13.3f} +-{stddev:.3f}   {llh:7s} = {crd:15.3f} +-{ecart:.3f}'.format(ecef=ecef, wavg=dwavg[ecef], stddev=dstddev[decef], llh=llh, crd=dwavg[llh], ecart=dstddev[dllh]))
+# plot the
+# fig, ax = plt.subplots(1,3, figsize=(13,7))
+# df_output.plot(x="Date", y=["Influenza[it]","Febbre[it]" ], ax=ax[0])
