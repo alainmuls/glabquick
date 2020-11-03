@@ -3,6 +3,7 @@
 import sys
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 import datetime as dt
 import utm
 
@@ -110,6 +111,24 @@ for mode, count in proc_modes.iteritems():
             print('      {ecef:s} = {wavg:13.3f} +-{stddev:.3f}   {llh:7s} = {crd:15.9f} +-{ecart:.3f}   {utm:s} = {utmavg:13.3f} +- {utmdev:.3f}'.format(ecef=ecef, wavg=dwavg[ecef], stddev=dstddev[decef], llh=llh, crd=dwavg[llh], ecart=dstddev[dllh], utm=utmcrd, utmavg=dwavg[utmcrd], utmdev=dstddev[dcrd]))
         else:
             print('      {ecef:s} = {wavg:13.3f} +-{stddev:.3f}   {llh:7s} = {crd:15.3f} +-{ecart:.3f}'.format(ecef=ecef, wavg=dwavg[ecef], stddev=dstddev[decef], llh=llh, crd=dwavg[llh], ecart=dstddev[dllh]))
-# plot the
-# fig, ax = plt.subplots(1,3, figsize=(13,7))
-# df_output.plot(x="Date", y=["Influenza[it]","Febbre[it]" ], ax=ax[0])
+
+    # create columns for difference wrt average UTM values
+    for crd in UTM[:2] + ['ellh']:
+        df_output['d{:s}'.format(crd)] = df_output[crd] - dwavg[crd]
+
+    # plot the results
+    fig, ax = plt.subplots(2, 1, figsize=(13, 7))
+    plt.suptitle('Processing mode: {mode:s} (#obs:{obs:d})'.format(mode=dProcModes[mode], obs=count))
+
+    # plot the coordinates UTM/ellh (difference with weighted average) vs time
+    axis = ax[0]
+    axis.set_title('UTM coordinates')
+    df_output.loc[mode_idx].plot(x="DT", y=['dUTM.N', 'dUTM.E', 'dellh'], ax=axis)
+
+    # plot the XDOP & #SVs vs DT
+    axis = ax[1]
+    axis.set_title('XDOP & #SVs')
+    df_output.loc[mode_idx].plot(x="DT", y=XDOP, ax=axis)
+
+    # display the plot
+    plt.show()
