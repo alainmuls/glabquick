@@ -117,18 +117,33 @@ for mode, count in proc_modes.iteritems():
         df_output['d{:s}'.format(crd)] = df_output[crd] - dwavg[crd]
 
     # plot the results
-    fig, ax = plt.subplots(2, 1, figsize=(13, 7))
+    plt.style.use('ggplot')
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(13, 7), sharex=True)
     plt.suptitle('Processing mode: {mode:s} (#obs:{obs:d})'.format(mode=dProcModes[mode], obs=count))
 
     # plot the coordinates UTM/ellh (difference with weighted average) vs time
-    axis = ax[0]
-    axis.set_title('UTM coordinates')
-    df_output.loc[mode_idx].plot(x="DT", y=['dUTM.N', 'dUTM.E', 'dellh'], ax=axis)
+    ax1.set_title('UTM coordinates')
+    ax1.set_xlabel('')
+    ax1.set_ylabel('Coordinate difference [m]')
+    df_output.loc[mode_idx].plot(x='DT', y=['dUTM.N', 'dUTM.E', 'dellh'], ax=ax1)
 
     # plot the XDOP & #SVs vs DT
-    axis = ax[1]
-    axis.set_title('XDOP & #SVs')
-    df_output.loc[mode_idx].plot(x="DT", y=XDOP, ax=axis)
+    ax2.set_title('XDOP & #SVs')
+    ax2.set_xlabel('Date-Time')
+    ax2.set_ylabel('xDOP or #SVs [-]')
+    df_output.loc[mode_idx].plot(x="DT", y=XDOP, ax=ax2)
 
-    # display the plot
+    # plot number of SV on second y-axis
+    # ax2v = ax2.twinx()
+    # ax2v.set_ylim([0, 12])
+    # ax2v.set_ylabel('#SVs [-]')  # , fontsize='large', color='grey')
+    ax2.fill_between(x=df_output.loc[mode_idx]['DT'].values, y1=0, y2=df_output.loc[mode_idx]['#SVs'].values, alpha=0.15, linestyle='-', linewidth=3, color='green', label='#SVs', interpolate=False)
+    # ax2v.fill_between(df_output.loc[mode_idx]['DT'].values, 0, df_output.loc[mode_idx]['#SVs'].values, facecolor='#0079a3', alpha=0.4)
+
+    # display / save the plot
     plt.show()
+
+    # save the plot in subdir png of GNSSSystem
+    png_name = '{out:s}-{mode:s}.png'.format(out=cvs_output_name.replace('.', '-'), mode=dProcModes[mode])
+    fig.savefig(png_name, dpi=fig.dpi)
