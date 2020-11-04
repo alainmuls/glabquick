@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as font_manager
+from matplotlib import colors as mpcolors
 import datetime as dt
 import utm
 from geoidheight import geoid
@@ -47,6 +48,14 @@ def geoid_undulation(lat: float, lon: float) -> float:
     return gh.get(lat, lon)
 
 
+def make_rgb_transparent(rgb, bg_rgb, alpha):
+    """
+    make a color transparent
+    """
+    return [alpha * c1 + (1 - alpha) * c2
+            for (c1, c2) in zip(rgb, bg_rgb)]
+
+
 # font for th elegend
 legend_font = font_manager.FontProperties(family='monospace', weight='bold', style='normal', size='small')
 
@@ -59,11 +68,15 @@ dNEU = ['dN', 'dE', 'dU']
 XDOP = ['GDOP', 'PDOP', 'TDOP', 'HDOP', 'VDOP']
 Tropo = ['inc', 'exc', 'err']
 UTM = ['UTM.N', 'UTM.E', 'ortoH']
-dUTM = ['dUTM.N', 'dUTM.E', 'dEllH']
+dUTM = ['Delta_UTM.N', 'Delta_UTM.E', 'Delta_ortoH']
 
 col_names = ['OUTPUT', 'year', 'doy', 'sod', 'convergence'] +  ECEF + DeltaECEF + dECEF + LLH + DeltaNEU + dNEU + XDOP + Tropo + ['#SVs', 'ProcMode']
-# print(col_names)
-# sys.exit(5)
+
+utm_colors = ['tab:green', 'tab:blue', 'tab:brown']
+dop_colors = ['tab:green', 'tab:orange', 'tab:blue', 'tab:purple', 'tab:red', 'tab:brown']
+
+rgb_colors = [mpcolors.colorConverter.to_rgb(color) for color in utm_colors]
+rgb_error_colors = [make_rgb_transparent(rgb, (1, 1, 1), 0.4) for rgb in rgb_colors]
 
 # initialise the geodheight class
 gh = geoid.GeoidHeight('/usr/share/GeographicLib/geoids/egm2008-1.pgm')
@@ -120,28 +133,20 @@ for mode, count in proc_modes.iteritems():
         dwavg[llh] = wavg(group=df_pos.loc[mode_idx], avg_name=llh, weight_name=dneu)
         dstddev[llh] = stddev(df_pos.loc[mode_idx][dneu], dwavg[llh])
 
-    for utm_h, dcrd in zip(UTM, dNEU):
-        dwavg[utm_h] = wavg(group=df_pos.loc[mode_idx], avg_name='ellh', weight_name=dcrd)
-        if utm_h == 'ortoH':  # correct for geoidheight
-            # dwavg[utm_h] = wavg(group=df_pos.loc[mode_idx], avg_name=ellh, weight_name=dcrd)
-            lati = dwavg['lat']
-            loni = dwavg['lon']
-            Ngeoid = gh.get(lati, loni)
-            dwavg[utm_h] -= Ngeoid
-        dstddev[utm_h] = stddev(df_pos.loc[mode_idx][dcrd], dwavg[utm_h])
+    for utm, dcrd in zip(UTM, dNEU):
+        dwavg[utm] = wavg(group=df_pos.loc[mode_idx], avg_name=utm, weight_name=dcrd)
+        dstddev[utm] = stddev(df_pos.loc[mode_idx][dcrd], dwavg[utm])
 
-    for i, (ecef, llh, utm_h) in enumerate(zip(ECEF, LLH, UTM)):
-        if i < 2:
-            print('      {ecef:3s} = {wavg:13.3f} +-{stddev:.3f}   {llh:7s} = {crd:15.9f} +-{ecart:.3f}   {utm:7s} = {utmavg:13.3f} +- {utmdev:.3f}'.format(ecef=ecef, wavg=dwavg[ecef], stddev=dstddev[ecef], llh=llh, crd=dwavg[llh], ecart=dstddev[llh], utm=utm_h, utmavg=dwavg[utm_h], utmdev=dstddev[utm_h]))
-        else:
-            print('      {ecef:3s} = {wavg:13.3f} +-{stddev:.3f}   {llh:7s} = {crd:15.3f} +-{ecart:.3f}   {orth:7s} = {orthoh:13.3f} +- {ortohdev:.3f}'.format(ecef=ecef, wavg=dwavg[ecef], stddev=dstddev[ecef], llh=llh, crd=dwavg[llh], ecart=dstddev[llh], orth='H', orthoh=dwavg[utm_h], ortohdev=dstddev[utm_h]))
+    # print the results for this mode
+    for i, (ecef, llh, utm) in enumerate(zip(ECEF, LLH, UTM)):
+        print('{ecef:>9s} = {cart:13.3f} +-{cartSD:.3f}   {geographic:>7s} = {geod:15.9f} +-{geodSD:.3f}   {utm:>7s} = {utmavg:13.3f} +- {utmSD:.3f}'.format(ecef=ecef, cart=dwavg[ecef], cartSD=dstddev[ecef], geographic=llh, geod=dwavg[llh], geodSD=dstddev[llh], utm=utm, utmavg=dwavg[utm], utmSD=dstddev[utm]))
 
     # create columns for difference wrt average UTM values used for plotting
     df_tmp = pd.DataFrame()
     df_tmp['DT'] = df_pos.loc[mode_idx]['DT']
     for crd, dutm in zip(UTM, dUTM):
         print(crd)
-        df_tmp[dutm] = df_pos.loc[mode_idx][crd] - dwavg[crd]
+        df_tmp['Delta_{:s}'.format(crd)] = df_pos.loc[mode_idx][crd] - dwavg[crd]
     df_tmp[dNEU] = df_pos.loc[mode_idx][dNEU]
     df_tmp[XDOP] = df_pos.loc[mode_idx][XDOP]
     df_tmp["#SVs"] = df_pos.loc[mode_idx]["#SVs"]
@@ -154,82 +159,38 @@ for mode, count in proc_modes.iteritems():
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(13, 7), sharex=True)
     plt.suptitle('Processing mode: {mode:s} (#obs:{obs:d})'.format(mode=dProcModes[mode], obs=count))
 
-    # plot the coordinates UTM/ellh (difference with weighted average) vs time
-    # df_pos.loc[mode_idx].plot(x='DT', y=['dUTM.N', 'dUTM.E', 'dellh'], ax=ax1)
+    # PLOT THE COORDINATES UTM/ELLH (DIFFERENCE WITH WEIGHTED AVERAGE) VS TIME
+    for i, (crd, crd_sd, dutm, crd_color, error_color) in enumerate(zip(UTM, dNEU, dUTM, rgb_colors, rgb_error_colors)):
+
+        ax1.errorbar(x=df_tmp['DT'], y=df_tmp[dutm], yerr=df_tmp[crd_sd], linestyle='none', capthick=1, markersize=1, fmt='o', color=crd_color, ecolor=error_color, elinewidth=3, capsize=0, label=crd)
+
+        crd_txt = r'{crd:s}: {wavg:14.3f} $\pm$ {sdcrd:.3f}'.format(crd=crd, wavg=dwavg[crd], sdcrd=dstddev[crd])
+
+        ax1.annotate(crd_txt, xy=(1, 1), xycoords='axes fraction', xytext=(0, 35 - i * 15), textcoords='offset pixels', horizontalalignment='right', verticalalignment='bottom', fontweight='bold', fontsize='small', fontname='Courier', family='monospace')
 
     # name the titles and so on
-    ax1.set_title('UTM & EllH')
+    ax1.set_title('UTM & Orto H')
     ax1.set_xlabel('')
     ax1.set_ylabel('Coordinate difference [m]')
-    # ax1.legend(prop=legend_font, bbox_to_anchor=(1.01, 1), loc='upper left')
+    ax1.legend(prop=legend_font, bbox_to_anchor=(1.02, 1), loc='upper left')
 
-    # # annotate with average & stddev of coordinates
-    # for _, crd in enumerate(UTM[:2] + LLH[-1:]):
-    #     crd_txt = r'{crd:s}: {wavg:14.3f} $\pm$ {sdcrd:.3f}'.format(crd=crd, wavg=dwavg[crd], sdcrd=dstddev[crd])
-
-    #     ax1.annotate(crd_txt, xy=(1, 1), xycoords='axes fraction', xytext=(0, 35 - i * 15), textcoords='offset pixels', horizontalalignment='right', verticalalignment='bottom', fontweight='bold', fontsize='small', fontname='Courier', family='monospace')
-
-    for ii, (crd, crd_sd, dutm) in enumerate(zip(UTM[:2] + [LLH[-1]], dNEU, dUTM)):
-        # ax1.errorbar(x=dfUTM.loc[idx]['DT'], y=dfCrd.loc[idx][crd], yerr=dfUTM.loc[idx][stdDev2Plot[i]], linestyle='None', fmt='o', ecolor=rgb_new, capthick=2, markersize=2, color=colors[key], label=value)
-        # print('_' * 25)
-        print("ii = {!s}".format(ii))
-        print("crd = {:s}".format(crd))
-        print("crd_sd = {:s}".format(crd_sd))
-        print("dutm = {:s}".format(dutm))
-        # print("df_pos.loc[mode_idx]['DT'][:5] = {!s}".format(df_pos.loc[mode_idx]['DT'][:5]))
-        # print("df_tmp = {!s}".format(df_tmp))
-        # print("df_tmp.loc[mode_idx] =\n{!s}".format(df_tmp.loc[mode_idx]))
-
-        # print('#' * 25)
-        # print("crd = {:s}".format(crd))
-        # print("type(crd) = {!s}".format(type(crd)))
-        # print("df_tmp.loc[mode_idx][dutm][:5] =\n{!s}".format(df_tmp.loc[mode_idx][dutm][:5]))
-
-        # print("len(df_pos.loc[mode_idx]['DT']) = {!s}".format(len(df_pos.loc[mode_idx]['DT'])))
-        # print("len(df_tmp.loc[mode_idx][dutm]) = {!s}".format(len(df_tmp.loc[mode_idx][dutm])))
-        # print("len(df_pos.loc[mode_idx][crd_sd]) = {!s}".format(len(df_pos.loc[mode_idx][crd_sd])))
-        # print('_' * 50)
-
-        # df_tmp.loc[mode_idx].plot(x='DT', y=dutm, ax=ax1)
-
-        # upper and lower coordinates
-        # df_tmp['up'] = df_tmp.loc[mode_idx][dutm] + df_pos.loc[mode_idx][crd_sd]
-        # df_tmp['down'] = df_tmp.loc[mode_idx][dutm] - df_pos.loc[mode_idx][crd_sd]
-        # print(df_tmp.head(n=10))
-        # print(df_tmp.tail(n=10))
-
-        # print("len(df_tmp['DT']) = {!s}".format(len(df_tmp['DT'])))
-        # print("len(df_tmp[dUTM])= {!s}".format(len(df_tmp[dUTM])))
-        # print("len(df_tmp[crd_sd])= {!s}".format(len(df_tmp[crd_sd])))
-
-        # ax1.errorbar(x=df_tmp.loc[mode_idx]['DT'], y=df_tmp.loc[mode_idx][dUTM], yerr=df_tmp.loc[mode_idx][crd_sd], linestyle='None', fmt='o', capthick=2, markersize=2, label=crd)
-
-        # crd_txt = r'{crd:s}: {wavg:14.3f} $\pm$ {sdcrd:.3f}'.format(crd=crd, wavg=dwavg[crd], sdcrd=dstddev[crd])
-
-        # ax1.annotate(crd_txt, xy=(1, 1), xycoords='axes fraction', xytext=(0, 35 - i * 15), textcoords='offset pixels', horizontalalignment='right', verticalalignment='bottom', fontweight='bold', fontsize='small', fontname='Courier', family='monospace')
-
-        ax1.errorbar(x=df_tmp['DT'], y=df_tmp[dutm], yerr=df_tmp[crd_sd], linestyle='none', fmt='.', capthick=1, markersize=2)
-
-    # sys.exit(6)
-
-
-    # plot the XDOP & #SVs vs DT
+    # PLOT THE XDOP & #SVS VS DT
     # df_tmp.plot(x='DT', y=XDOP, ax=ax2)
-    for xdop in XDOP:
-        ax2.plot(df_tmp['DT'], df_tmp[xdop])
+    for xdop, xdop_color in zip(XDOP, dop_colors):
+        ax2.plot(df_tmp['DT'], df_tmp[xdop], label=xdop, color=xdop_color)
 
     # plot number of SV on second y-axis
-    # ax2v = ax2.twinx()
-    # ax2v.set_ylim([0, 12])
-    # ax2v.set_ylabel('#SVs [-]')  # , fontsize='large', color='grey')
-    ax2.fill_between(x=df_tmp['DT'].values, y1=0, y2=df_tmp['#SVs'].values, alpha=0.15, linestyle='-', linewidth=3, color='green', label='#SVs', interpolate=False)
+    ax2v = ax2.twinx()
+    ax2v.set_ylim([0, 12])
+    ax2v.set_ylabel('#SVs [-]')  # , fontsize='large', color='grey')
+    ax2v.fill_between(x=df_tmp['DT'].values, y1=0, y2=df_tmp['#SVs'].values, alpha=0.15, linestyle='-', linewidth=3, color='grey', label='#SVs', interpolate=False)
     # ax2v.fill_between(df_pos.loc[mode_idx]['DT'].values, 0, df_pos.loc[mode_idx]['#SVs'].values, facecolor='#0079a3', alpha=0.4)
 
     # name the axis
     ax2.set_title('XDOP & #SVs')
     ax2.set_xlabel('Date-Time')
-    ax2.set_ylabel('xDOP or #SVs [-]')
-    ax2.legend(prop=legend_font, bbox_to_anchor=(1.01, 1), loc='upper left')
+    ax2.set_ylabel('xDOP [-]')
+    ax2.legend(prop=legend_font, bbox_to_anchor=(1.02, 1), loc='upper left')
 
     # copyright this
     ax2.annotate(r'$\copyright$ Alain Muls (alain.muls@mil.be)', xy=(1, 0), xycoords='axes fraction', xytext=(0, -30), textcoords='offset pixels', horizontalalignment='right', verticalalignment='top', weight='strong', fontsize='small', family='monospace')
