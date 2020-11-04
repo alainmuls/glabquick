@@ -70,6 +70,26 @@ def table_header_str(col_headers: list) -> str:
     return ret_str
 
 
+def table_row_str(df: pd.DataFrame, columns: list, idx_start: int, idx_end:int, width: list, prec: list) -> str:
+    """
+    table_row_str creates a row into the table
+    """
+    print('{:{width}.{prec}f}'.format(2.7182, width=15, prec=6))
+    ret_str = ''
+
+    print('\n\ncolumns = {!s}'.format(columns))
+    for idx in idx_start:
+        for mlist, mwidth, mprec in zip(columns, width, prec):
+            # print('mlist {!s}'.format(mlist))
+            # print('mwidth {!s}'.format(mwidth))
+            # print('mprec {!s}'.format(mprec))
+            for col in mlist:
+                ret_str += '| {:{width}.{prec}f} '.format(df[col][idx], width=mwidth, prec=mprec)
+        ret_str += '|\n'
+
+    return ret_str
+
+
 def markdown_report(mode: str):
     """
     create a markdown report for the selected mode
@@ -101,6 +121,8 @@ def markdown_report(mode: str):
             fout.write('|\n')
         # fout.write('| ---: ' * 9)
         fout.write('\n')
+
+        print(table_row_str(df=df_pos.loc[mode_idx], columns=[ECEF, dECEF], idx_start=start_idx, idx_end=end_idx, width=[0, 0], prec=[4, 3]))
 
 
 # font for th elegend
