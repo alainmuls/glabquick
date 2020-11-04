@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 import matplotlib.font_manager as font_manager
 import datetime as dt
 import utm
+from geoidheight import geoid
+
 
 def wavg(group: dict, avg_name: str, weight_name: str) -> float:
     """ http://stackoverflow.com/questions/10951341/pandas-dataframe-aggregate-function-using-multiple-columns
@@ -38,6 +40,13 @@ def make_datetime(year: float, doy: float, sod: float) -> dt.datetime:
     return dt.datetime.strptime('{:d} {:d} {!s}'.format(int(year), int(doy), pd.to_datetime(sod, unit='s', errors='coerce').time()), '%Y %j %H:%M:%S')
 
 
+def geoid_undulation(lat: float, lon: float) -> float:
+    """
+    calculates the geoid undulation N at specified position
+    """
+    return gh.get(lat, lon)
+
+
 # font for th elegend
 legend_font = font_manager.FontProperties(family='monospace', weight='bold', style='normal', size='small')
 
@@ -49,12 +58,15 @@ DeltaNEU = ['DeltaN', 'DeltaE', 'DeltaU']
 dNEU = ['dN', 'dE', 'dU']
 XDOP = ['GDOP', 'PDOP', 'TDOP', 'HDOP', 'VDOP']
 Tropo = ['inc', 'exc', 'err']
-UTM = ['UTM.N', 'UTM.E', 'Zone']
+UTM = ['UTM.N', 'UTM.E', 'ortoH']
 dUTM = ['dUTM.N', 'dUTM.E', 'dEllH']
 
 col_names = ['OUTPUT', 'year', 'doy', 'sod', 'convergence'] +  ECEF + DeltaECEF + dECEF + LLH + DeltaNEU + dNEU + XDOP + Tropo + ['#SVs', 'ProcMode']
 # print(col_names)
 # sys.exit(5)
+
+# initialise the geodheight class
+gh = geoid.GeoidHeight('/usr/share/GeographicLib/geoids/egm2008-1.pgm')
 
 # Get name of gLAB v2 processed OUTPUT only file
 cvs_output_name = input("Enter name of CSV glab v5 MESSAGE OUTPUT file: ")
@@ -73,6 +85,9 @@ try:
     # add UTM coordinates
     df_pos['UTM.E'], df_pos['UTM.N'], Zone, Letter = utm.from_latlon(df_pos['lat'].to_numpy(), df_pos['lon'].to_numpy())
     df_pos['Zone'] = '{!s}{!s}'.format(Zone, Letter)
+
+    # df_pos['OrtoH'] = df_pos.apply(geoid_undulation(df_pos['lat'], df_pos['lon']))
+    df_pos['ortoH'] = [ellh - geoid_undulation(lat, lon) for lat, lon, ellh in zip(df_pos['lat'], df_pos['lon'], df_pos['ellh'])]
 
     print(df_pos.head(n=10))
     print(df_pos.tail(n=10))
@@ -105,20 +120,26 @@ for mode, count in proc_modes.iteritems():
         dwavg[llh] = wavg(group=df_pos.loc[mode_idx], avg_name=llh, weight_name=dneu)
         dstddev[llh] = stddev(df_pos.loc[mode_idx][dneu], dwavg[llh])
 
-    for utm_h, dcrd in zip(UTM[:2], dNEU[:2]):
-        dwavg[utm_h] = wavg(group=df_pos.loc[mode_idx], avg_name=utm_h, weight_name=dcrd)
+    for utm_h, dcrd in zip(UTM, dNEU):
+        dwavg[utm_h] = wavg(group=df_pos.loc[mode_idx], avg_name='ellh', weight_name=dcrd)
+        if utm_h == 'ortoH':  # correct for geoidheight
+            # dwavg[utm_h] = wavg(group=df_pos.loc[mode_idx], avg_name=ellh, weight_name=dcrd)
+            lati = dwavg['lat']
+            loni = dwavg['lon']
+            Ngeoid = gh.get(lati, loni)
+            dwavg[utm_h] -= Ngeoid
         dstddev[utm_h] = stddev(df_pos.loc[mode_idx][dcrd], dwavg[utm_h])
 
     for i, (ecef, llh, utm_h) in enumerate(zip(ECEF, LLH, UTM)):
         if i < 2:
-            print('      {ecef:s} = {wavg:13.3f} +-{stddev:.3f}   {llh:7s} = {crd:15.9f} +-{ecart:.3f}   {utm:s} = {utmavg:13.3f} +- {utmdev:.3f}'.format(ecef=ecef, wavg=dwavg[ecef], stddev=dstddev[ecef], llh=llh, crd=dwavg[llh], ecart=dstddev[llh], utm=utm_h, utmavg=dwavg[utm_h], utmdev=dstddev[utm_h]))
+            print('      {ecef:3s} = {wavg:13.3f} +-{stddev:.3f}   {llh:7s} = {crd:15.9f} +-{ecart:.3f}   {utm:7s} = {utmavg:13.3f} +- {utmdev:.3f}'.format(ecef=ecef, wavg=dwavg[ecef], stddev=dstddev[ecef], llh=llh, crd=dwavg[llh], ecart=dstddev[llh], utm=utm_h, utmavg=dwavg[utm_h], utmdev=dstddev[utm_h]))
         else:
-            print('      {ecef:s} = {wavg:13.3f} +-{stddev:.3f}   {llh:7s} = {crd:15.3f} +-{ecart:.3f}'.format(ecef=ecef, wavg=dwavg[ecef], stddev=dstddev[ecef], llh=llh, crd=dwavg[llh], ecart=dstddev[llh]))
+            print('      {ecef:3s} = {wavg:13.3f} +-{stddev:.3f}   {llh:7s} = {crd:15.3f} +-{ecart:.3f}   {orth:7s} = {orthoh:13.3f} +- {ortohdev:.3f}'.format(ecef=ecef, wavg=dwavg[ecef], stddev=dstddev[ecef], llh=llh, crd=dwavg[llh], ecart=dstddev[llh], orth='H', orthoh=dwavg[utm_h], ortohdev=dstddev[utm_h]))
 
     # create columns for difference wrt average UTM values used for plotting
     df_tmp = pd.DataFrame()
     df_tmp['DT'] = df_pos.loc[mode_idx]['DT']
-    for crd, dutm in zip(UTM[:2] + LLH[-1:], dUTM):
+    for crd, dutm in zip(UTM, dUTM):
         print(crd)
         df_tmp[dutm] = df_pos.loc[mode_idx][crd] - dwavg[crd]
     df_tmp[dNEU] = df_pos.loc[mode_idx][dNEU]
