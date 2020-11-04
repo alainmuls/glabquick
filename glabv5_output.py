@@ -56,9 +56,57 @@ def make_rgb_transparent(rgb, bg_rgb, alpha):
             for (c1, c2) in zip(rgb, bg_rgb)]
 
 
+def table_header_str(col_headers: list) -> str:
+    """
+    table_header_str creates a hedaer line t
+    """
+    ret_str = ''
+    for header in col_headers:
+        ret_str += '| __{hdr:s}__ '.format(hdr=header)
+    ret_str += '|\n'
+    ret_str += '| ---: ' * len(col_headers)
+    ret_str += '|\n'
+
+    return ret_str
+
+
+def markdown_report(mode: str):
+    """
+    create a markdown report for the selected mode
+    """
+    md_name = '{out:s}-{mode:s}.markdown'.format(out=cvs_output_name.replace('.', '-'), mode=dProcModes[mode])
+    with open(md_name, 'w') as fout:
+        fout.write(table_header_str(DATES + ECEF + dECEF))
+
+        # determine indices of first / last 10 rows
+        start_idx = df_pos.loc[mode_idx][:10].index
+        end_idx = df_pos.loc[mode_idx][-10:].index
+
+        # write cartesian information
+        for i in start_idx:
+            for col in DATES:
+                fout.write('| {!s} '.format(df_pos.loc[mode_idx][col][i]))
+            for col in ECEF + dECEF:
+                fout.write('| {:.4f} '.format(df_pos.loc[mode_idx][col][i]))
+            fout.write('|\n')
+        fout.write('| ---: ' * 9)
+        fout.write('|\n')
+
+        print('end_idx = {!s}'.format(end_idx))
+        for i in start_idx:
+            for col in DATES:
+                fout.write('| {!s} '.format(df_pos.loc[mode_idx][col][i]))
+            for col in ECEF + dECEF:
+                fout.write('| {:.4f} '.format(df_pos.loc[mode_idx][col][i]))
+            fout.write('|\n')
+        # fout.write('| ---: ' * 9)
+        fout.write('\n')
+
+
 # font for th elegend
 legend_font = font_manager.FontProperties(family='monospace', weight='bold', style='normal', size='small')
 
+DATES = ['year', 'doy', 'sod', 'DT']
 ECEF = ['X', 'Y', 'Z']
 DeltaECEF = ['DeltaX', 'DeltaY', 'DeltaZ']
 dECEF = ['dX', 'dY', 'dZ']
@@ -76,7 +124,7 @@ utm_colors = ['tab:green', 'tab:blue', 'tab:brown']
 dop_colors = ['tab:green', 'tab:orange', 'tab:blue', 'tab:purple', 'tab:red', 'tab:brown']
 
 rgb_colors = [mpcolors.colorConverter.to_rgb(color) for color in utm_colors]
-rgb_error_colors = [make_rgb_transparent(rgb, (1, 1, 1), 0.4) for rgb in rgb_colors]
+rgb_error_colors = [make_rgb_transparent(rgb, (1, 1, 1), 0.4 - i * 0.1) for i, rgb in enumerate(rgb_colors)]
 
 # initialise the geodheight class
 gh = geoid.GeoidHeight('/usr/share/GeographicLib/geoids/egm2008-1.pgm')
@@ -111,7 +159,7 @@ except IOError:
 # List unique values in the ProcMode column "0 -> SPP, 1 -> PPP, 2 -> SBAS, 3 -> DGNSS"
 dProcModes = {0: 'SPP', 1: 'PPP', 2: 'SBAS', 3: 'DGNSS'}
 # proc_modes = df_pos.ProcMode.unique()
-print('Processing modes observed:')
+print('\nProcessing modes observed:')
 proc_modes = df_pos['ProcMode'].value_counts()
 
 # calculate the weighted average of cartesian, geodetic and NEU data for each observed mode
@@ -144,14 +192,13 @@ for mode, count in proc_modes.iteritems():
     # create columns for difference wrt average UTM values used for plotting
     df_tmp = pd.DataFrame()
     df_tmp['DT'] = df_pos.loc[mode_idx]['DT']
-    for crd, dutm in zip(UTM, dUTM):
-        print(crd)
+    for crd in UTM:
         df_tmp['Delta_{:s}'.format(crd)] = df_pos.loc[mode_idx][crd] - dwavg[crd]
     df_tmp[dNEU] = df_pos.loc[mode_idx][dNEU]
     df_tmp[XDOP] = df_pos.loc[mode_idx][XDOP]
     df_tmp["#SVs"] = df_pos.loc[mode_idx]["#SVs"]
 
-    print('df_tmp =\n{!s}'.format(df_tmp))
+    # print('df_tmp =\n{!s}'.format(df_tmp))
 
     # plot the results
     plt.style.use('ggplot')
@@ -172,7 +219,7 @@ for mode, count in proc_modes.iteritems():
     ax1.set_title('UTM & Orto H')
     ax1.set_xlabel('')
     ax1.set_ylabel('Coordinate difference [m]')
-    ax1.legend(prop=legend_font, bbox_to_anchor=(1.02, 1), loc='upper left')
+    ax1.legend(prop=legend_font, bbox_to_anchor=(1.02, 1), loc='upper left', markerscale=3)
 
     # PLOT THE XDOP & #SVS VS DT
     # df_tmp.plot(x='DT', y=XDOP, ax=ax2)
@@ -183,7 +230,7 @@ for mode, count in proc_modes.iteritems():
     ax2v = ax2.twinx()
     ax2v.set_ylim([0, 12])
     ax2v.set_ylabel('#SVs [-]')  # , fontsize='large', color='grey')
-    ax2v.fill_between(x=df_tmp['DT'].values, y1=0, y2=df_tmp['#SVs'].values, alpha=0.15, linestyle='-', linewidth=3, color='grey', label='#SVs', interpolate=False)
+    ax2v.fill_between(x=df_tmp['DT'].values, y1=0, y2=df_tmp['#SVs'].values, alpha=0.25, linestyle='-', linewidth=3, color='grey', label='#SVs', interpolate=False)
     # ax2v.fill_between(df_pos.loc[mode_idx]['DT'].values, 0, df_pos.loc[mode_idx]['#SVs'].values, facecolor='#0079a3', alpha=0.4)
 
     # name the axis
@@ -197,6 +244,9 @@ for mode, count in proc_modes.iteritems():
 
     # display / save the plot
     plt.show()
+
+    # create markdown report
+    markdown_report(mode=mode)
 
     # save the plot in subdir png of GNSSSystem
     png_name = '{out:s}-{mode:s}.png'.format(out=cvs_output_name.replace('.', '-'), mode=dProcModes[mode])
