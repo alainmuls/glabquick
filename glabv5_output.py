@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import matplotlib.font_manager as font_manager
 from matplotlib import colors as mpcolors
 import datetime as dt
+import os
 import utm
 from geoidheight import geoid
 
@@ -70,22 +71,35 @@ def table_header_str(col_headers: list) -> str:
     return ret_str
 
 
-def table_row_str(df: pd.DataFrame, columns: list, idx_start: int, idx_end:int, width: list, prec: list) -> str:
+def table_row_str(df: pd.DataFrame, lst_columns: list, idx_start: int, idx_end: int, width: list, prec: list) -> str:
     """
     table_row_str creates a row into the table
     """
-    print('{:{width}.{prec}f}'.format(2.7182, width=15, prec=6))
     ret_str = ''
 
-    print('\n\ncolumns = {!s}'.format(columns))
-    for idx in idx_start:
-        for mlist, mwidth, mprec in zip(columns, width, prec):
+    # print('\n\ncolumns = {!s}'.format(lst_columns))
+    # print('idx_start = {!s}'.format(idx_start))
+    # print('idx_end = {!s}'.format(idx_end))
+    # print('idx_start.union(idx_end) = {!s}'.format(idx_start.union(idx_end)))
+
+    for i, idx in enumerate(idx_start.union(idx_end)):
+        for mlist, mwidth, mprec in zip(lst_columns, width, prec):
             # print('mlist {!s}'.format(mlist))
             # print('mwidth {!s}'.format(mwidth))
             # print('mprec {!s}'.format(mprec))
-            for col in mlist:
-                ret_str += '| {:{width}.{prec}f} '.format(df[col][idx], width=mwidth, prec=mprec)
+            if (mwidth == 0) and (mprec == 0):
+                for col in mlist:
+                    ret_str += '| {!s} '.format(df[col][idx])
+            else:
+                for col in mlist:
+                    ret_str += '| {:{width}.{prec}f} '.format(df[col][idx], width=mwidth, prec=mprec)
         ret_str += '|\n'
+
+        if i == len(idx_start) - 1:
+            ret_str += '| ' * sum([len(lst) for lst in lst_columns])
+            ret_str += '\n'
+
+    # print(ret_str)
 
     return ret_str
 
@@ -94,35 +108,50 @@ def markdown_report(mode: str):
     """
     create a markdown report for the selected mode
     """
-    md_name = '{out:s}-{mode:s}.markdown'.format(out=cvs_output_name.replace('.', '-'), mode=dProcModes[mode])
+    start_idx = df_pos.loc[mode_idx][:5].index
+    end_idx = df_pos.loc[mode_idx][-5:].index
+
+    md_name = '{out:s}-{mode:s}-cart.markdown'.format(out=cvs_output_name.replace('.', '-'), mode=dProcModes[mode])
     with open(md_name, 'w') as fout:
         fout.write(table_header_str(DATES + ECEF + dECEF))
-
-        # determine indices of first / last 10 rows
-        start_idx = df_pos.loc[mode_idx][:10].index
-        end_idx = df_pos.loc[mode_idx][-10:].index
-
-        # write cartesian information
-        for i in start_idx:
-            for col in DATES:
-                fout.write('| {!s} '.format(df_pos.loc[mode_idx][col][i]))
-            for col in ECEF + dECEF:
-                fout.write('| {:.4f} '.format(df_pos.loc[mode_idx][col][i]))
-            fout.write('|\n')
-        fout.write('| ---: ' * 9)
-        fout.write('|\n')
-
-        print('end_idx = {!s}'.format(end_idx))
-        for i in start_idx:
-            for col in DATES:
-                fout.write('| {!s} '.format(df_pos.loc[mode_idx][col][i]))
-            for col in ECEF + dECEF:
-                fout.write('| {:.4f} '.format(df_pos.loc[mode_idx][col][i]))
-            fout.write('|\n')
-        # fout.write('| ---: ' * 9)
+        # write DATES, ECEF and dECEF (cartesian) information
+        fout.write(table_row_str(df=df_pos.loc[mode_idx], lst_columns=[DATES, ECEF, dECEF], idx_start=start_idx, idx_end=end_idx, width=[0, 0, 0], prec=[0, 4, 3]))
+        # add table ID
         fout.write('\n')
+        fout.write('Table: cartesian coordinates (mode: {mode:s}){{#tbl:{tblname:s}}}\n\n\n'.format(mode=dProcModes[mode], tblname=os.path.splitext(os.path.basename(md_name))[0]))
+        # print the weighted result
+        fout.write('__Weighted cartesian average:__\n\n')
+        for i, ecef in enumerate(ECEF):
+            fout.write('{ecef:>9s} = \\numprint{{{cart:.3f}}} $\\pm$\\numprint{{{cartSD:.3f}}}\n'.format(ecef=ecef, cart=dwavg[ecef], cartSD=dstddev[ecef]))
 
-        print(table_row_str(df=df_pos.loc[mode_idx], columns=[ECEF, dECEF], idx_start=start_idx, idx_end=end_idx, width=[0, 0], prec=[4, 3]))
+    md_name = '{out:s}-{mode:s}-geod.markdown'.format(out=cvs_output_name.replace('.', '-'), mode=dProcModes[mode])
+    with open(md_name, 'w') as fout:
+        fout.write(table_header_str(DATES + LLH + dNEU))
+        # write DATES, ECEF and dECEF (cartesian) information
+        fout.write(table_row_str(df=df_pos.loc[mode_idx], lst_columns=[DATES, LLH[:2], [LLH[-1]], dNEU], idx_start=start_idx, idx_end=end_idx, width=[0, 0, 0, 0], prec=[0, 9, 3, 3]))
+        # add table ID
+        fout.write('\n')
+        fout.write('Table: geodetic coordinates (mode: {mode:s}){{#tbl:{tblname:s}}}\n\n\n'.format(mode=dProcModes[mode], tblname=os.path.splitext(os.path.basename(md_name))[0]))
+        # print the weighted result
+        fout.write('__Weighted cartesian average:__\n\n')
+        for i, llh in enumerate(LLH):
+            if i < 2:
+                fout.write('{geographic:>9s} = \\numprint{{{geod:.9f}}} $\\pm$\\numprint{{{geodSD:.3f}}}\n'.format(geographic=llh, geod=dwavg[llh], geodSD=dstddev[llh]))
+            else:
+                fout.write('{geographic:>9s} = \\numprint{{{geod:.3f}}} $\\pm$\\numprint{{{geodSD:.3f}}}\n'.format(geographic=llh, geod=dwavg[llh], geodSD=dstddev[llh]))
+
+    md_name = '{out:s}-{mode:s}-utmH.markdown'.format(out=cvs_output_name.replace('.', '-'), mode=dProcModes[mode])
+    with open(md_name, 'w') as fout:
+        fout.write(table_header_str(DATES + UTM + dNEU))
+        # write DATES, ECEF and dECEF (cartesian) information
+        fout.write(table_row_str(df=df_pos.loc[mode_idx], lst_columns=[DATES, UTM, dNEU], idx_start=start_idx, idx_end=end_idx, width=[0, 0, 0], prec=[0, 3, 3]))
+        # add table ID
+        fout.write('\n')
+        fout.write('Table: UTM & ortometric height coordinates (mode: {mode:s}){{#tbl:{tblname:s}}}\n\n\n'.format(mode=dProcModes[mode], tblname=os.path.splitext(os.path.basename(md_name))[0]))
+        # print the weighted result
+        fout.write('__Weighted UTM - ortometric height average:__\n\n')
+        for i, utm in enumerate(UTM):
+            fout.write('{utm:>9s} = \\numprint{{{utmavg:.3f}}} $\\pm$\\numprint{{{utmSD:.3f}}}\n'.format(utm=utm, utmavg=dwavg[utm], utmSD=dstddev[utm]))
 
 
 # font for th elegend
@@ -146,7 +175,7 @@ utm_colors = ['tab:green', 'tab:blue', 'tab:brown']
 dop_colors = ['tab:green', 'tab:orange', 'tab:blue', 'tab:purple', 'tab:red', 'tab:brown']
 
 rgb_colors = [mpcolors.colorConverter.to_rgb(color) for color in utm_colors]
-rgb_error_colors = [make_rgb_transparent(rgb, (1, 1, 1), 0.4 - i * 0.1) for i, rgb in enumerate(rgb_colors)]
+rgb_error_colors = [make_rgb_transparent(rgb, (1, 1, 1), 0.4) for i, rgb in enumerate(rgb_colors)]
 
 # initialise the geodheight class
 gh = geoid.GeoidHeight('/usr/share/GeographicLib/geoids/egm2008-1.pgm')
@@ -209,7 +238,10 @@ for mode, count in proc_modes.iteritems():
 
     # print the results for this mode
     for i, (ecef, llh, utm) in enumerate(zip(ECEF, LLH, UTM)):
-        print('{ecef:>9s} = {cart:13.3f} +-{cartSD:.3f}   {geographic:>7s} = {geod:15.9f} +-{geodSD:.3f}   {utm:>7s} = {utmavg:13.3f} +- {utmSD:.3f}'.format(ecef=ecef, cart=dwavg[ecef], cartSD=dstddev[ecef], geographic=llh, geod=dwavg[llh], geodSD=dstddev[llh], utm=utm, utmavg=dwavg[utm], utmSD=dstddev[utm]))
+        if i < 2:
+            print('{ecef:>9s} = {cart:13.3f} +-{cartSD:.3f}   {geographic:>7s} = {geod:15.9f} +-{geodSD:.3f}   {utm:>7s} = {utmavg:13.3f} +- {utmSD:.3f}'.format(ecef=ecef, cart=dwavg[ecef], cartSD=dstddev[ecef], geographic=llh, geod=dwavg[llh], geodSD=dstddev[llh], utm=utm, utmavg=dwavg[utm], utmSD=dstddev[utm]))
+        else:
+            print('{ecef:>9s} = {cart:13.3f} +-{cartSD:.3f}   {geographic:>7s} = {geod:15.3f} +-{geodSD:.3f}   {utm:>7s} = {utmavg:13.3f} +- {utmSD:.3f}'.format(ecef=ecef, cart=dwavg[ecef], cartSD=dstddev[ecef], geographic=llh, geod=dwavg[llh], geodSD=dstddev[llh], utm=utm, utmavg=dwavg[utm], utmSD=dstddev[utm]))
 
     # create columns for difference wrt average UTM values used for plotting
     df_tmp = pd.DataFrame()
