@@ -142,16 +142,16 @@ def markdown_report(mode: str):
 
     md_name = '{out:s}-{mode:s}-utmH.markdown'.format(out=cvs_output_name.replace('.', '-'), mode=dProcModes[mode])
     with open(md_name, 'w') as fout:
-        fout.write(table_header_str(DATES + UTM + dNEU))
+        fout.write(table_header_str(DATES + UTMcrd + dNEU))
         # write DATES, ECEF and dECEF (cartesian) information
-        fout.write(table_row_str(df=df_pos.loc[mode_idx], lst_columns=[DATES, UTM, dNEU], idx_start=start_idx, idx_end=end_idx, width=[0, 0, 0], prec=[0, 3, 3]))
+        fout.write(table_row_str(df=df_pos.loc[mode_idx], lst_columns=[DATES, UTMcrd, dNEU], idx_start=start_idx, idx_end=end_idx, width=[0, 0, 0], prec=[0, 3, 3]))
         # add table ID
         fout.write('\n')
-        fout.write('Table: UTM & ortometric height coordinates (mode: {mode:s}){{#tbl:{tblname:s}}}\n\n\n'.format(mode=dProcModes[mode], tblname=os.path.splitext(os.path.basename(md_name))[0]))
+        fout.write('Table: UTMcrd & ortometric height coordinates (mode: {mode:s}){{#tbl:{tblname:s}}}\n\n\n'.format(mode=dProcModes[mode], tblname=os.path.splitext(os.path.basename(md_name))[0]))
         # print the weighted result
-        fout.write('__Weighted UTM - ortometric height average:__\n\n')
-        for i, utm in enumerate(UTM):
-            fout.write('{utm:>9s} = \\numprint{{{utmavg:.3f}}} $\\pm$\\numprint{{{utmSD:.3f}}}\n'.format(utm=utm, utmavg=dwavg[utm], utmSD=dstddev[utm]))
+        fout.write('__Weighted UTMcrd - ortometric height average:__\n\n')
+        for i, utm_crd in enumerate(UTMcrd):
+            fout.write('{utm_crd:>9s} = \\numprint{{{utmavg:.3f}}} $\\pm$\\numprint{{{utmSD:.3f}}}\n'.format(utm_crd=utm_crd, utmavg=dwavg[utm_crd], utmSD=dstddev[utm_crd]))
 
 
 # font for th elegend
@@ -166,10 +166,10 @@ DeltaNEU = ['DeltaN', 'DeltaE', 'DeltaU']
 dNEU = ['dN', 'dE', 'dU']
 XDOP = ['GDOP', 'PDOP', 'TDOP', 'HDOP', 'VDOP']
 Tropo = ['inc', 'exc', 'err']
-UTM = ['UTM.N', 'UTM.E', 'ortoH']
-dUTM = ['Delta_UTM.N', 'Delta_UTM.E', 'Delta_ortoH']
+UTMcrd = ['UTM.N', 'UTM.E', 'ortoH']
+dUTMcrd = ['Delta_UTM.N', 'Delta_UTM.E', 'Delta_ortoH']
 
-col_names = ['OUTPUT', 'year', 'doy', 'sod', 'convergence'] +  ECEF + DeltaECEF + dECEF + LLH + DeltaNEU + dNEU + XDOP + Tropo + ['#SVs', 'ProcMode']
+col_names = ['OUTPUT', 'year', 'doy', 'sod', 'convergence'] + ECEF + DeltaECEF + dECEF + LLH + DeltaNEU + dNEU + XDOP + Tropo + ['#SVs', 'ProcMode']
 
 utm_colors = ['tab:green', 'tab:blue', 'tab:brown']
 dop_colors = ['tab:green', 'tab:orange', 'tab:blue', 'tab:purple', 'tab:red', 'tab:brown']
@@ -194,7 +194,7 @@ try:
     # add datetime column
     df_pos['DT'] = df_pos.apply(lambda x: make_datetime(x['year'], x['doy'], x['sod']), axis=1)
 
-    # add UTM coordinates
+    # add UTMcrd coordinates
     df_pos['UTM.E'], df_pos['UTM.N'], Zone, Letter = utm.from_latlon(df_pos['lat'].to_numpy(), df_pos['lon'].to_numpy())
     df_pos['Zone'] = '{!s}{!s}'.format(Zone, Letter)
 
@@ -204,7 +204,7 @@ try:
     print(df_pos.head(n=10))
     print(df_pos.tail(n=10))
 except IOError:
-    print('Could not find {file:s}.'.format(cvs_output_name))
+    print('Could not find {file:s}.'.format(file=cvs_output_name))
     sys.exit(1)
 
 # List unique values in the ProcMode column "0 -> SPP, 1 -> PPP, 2 -> SBAS, 3 -> DGNSS"
@@ -232,21 +232,21 @@ for mode, count in proc_modes.iteritems():
         dwavg[llh] = wavg(group=df_pos.loc[mode_idx], avg_name=llh, weight_name=dneu)
         dstddev[llh] = stddev(df_pos.loc[mode_idx][dneu], dwavg[llh])
 
-    for utm, dcrd in zip(UTM, dNEU):
-        dwavg[utm] = wavg(group=df_pos.loc[mode_idx], avg_name=utm, weight_name=dcrd)
-        dstddev[utm] = stddev(df_pos.loc[mode_idx][dcrd], dwavg[utm])
+    for utm_crd, dcrd in zip(UTMcrd, dNEU):
+        dwavg[utm_crd] = wavg(group=df_pos.loc[mode_idx], avg_name=utm_crd, weight_name=dcrd)
+        dstddev[utm_crd] = stddev(df_pos.loc[mode_idx][dcrd], dwavg[utm_crd])
 
     # print the results for this mode
-    for i, (ecef, llh, utm) in enumerate(zip(ECEF, LLH, UTM)):
+    for i, (ecef, llh, utm_crd) in enumerate(zip(ECEF, LLH, UTMcrd)):
         if i < 2:
-            print('{ecef:>9s} = {cart:13.3f} +-{cartSD:.3f}   {geographic:>7s} = {geod:15.9f} +-{geodSD:.3f}   {utm:>7s} = {utmavg:13.3f} +- {utmSD:.3f}'.format(ecef=ecef, cart=dwavg[ecef], cartSD=dstddev[ecef], geographic=llh, geod=dwavg[llh], geodSD=dstddev[llh], utm=utm, utmavg=dwavg[utm], utmSD=dstddev[utm]))
+            print('{ecef:>9s} = {cart:13.3f} +-{cartSD:.3f}   {geographic:>7s} = {geod:15.9f} +-{geodSD:.3f}   {utm_crd:>7s} = {utmavg:13.3f} +- {utmSD:.3f}'.format(ecef=ecef, cart=dwavg[ecef], cartSD=dstddev[ecef], geographic=llh, geod=dwavg[llh], geodSD=dstddev[llh], utm_crd=utm_crd, utmavg=dwavg[utm_crd], utmSD=dstddev[utm_crd]))
         else:
-            print('{ecef:>9s} = {cart:13.3f} +-{cartSD:.3f}   {geographic:>7s} = {geod:15.3f} +-{geodSD:.3f}   {utm:>7s} = {utmavg:13.3f} +- {utmSD:.3f}'.format(ecef=ecef, cart=dwavg[ecef], cartSD=dstddev[ecef], geographic=llh, geod=dwavg[llh], geodSD=dstddev[llh], utm=utm, utmavg=dwavg[utm], utmSD=dstddev[utm]))
+            print('{ecef:>9s} = {cart:13.3f} +-{cartSD:.3f}   {geographic:>7s} = {geod:15.3f} +-{geodSD:.3f}   {utm_crd:>7s} = {utmavg:13.3f} +- {utmSD:.3f}'.format(ecef=ecef, cart=dwavg[ecef], cartSD=dstddev[ecef], geographic=llh, geod=dwavg[llh], geodSD=dstddev[llh], utm_crd=utm_crd, utmavg=dwavg[utm_crd], utmSD=dstddev[utm_crd]))
 
-    # create columns for difference wrt average UTM values used for plotting
+    # create columns for difference wrt average UTMcrd values used for plotting
     df_tmp = pd.DataFrame()
     df_tmp['DT'] = df_pos.loc[mode_idx]['DT']
-    for crd in UTM:
+    for crd in UTMcrd:
         df_tmp['Delta_{:s}'.format(crd)] = df_pos.loc[mode_idx][crd] - dwavg[crd]
     df_tmp[dNEU] = df_pos.loc[mode_idx][dNEU]
     df_tmp[XDOP] = df_pos.loc[mode_idx][XDOP]
@@ -260,8 +260,8 @@ for mode, count in proc_modes.iteritems():
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(13, 7), sharex=True)
     plt.suptitle('Processing mode: {mode:s} (#obs:{obs:d})'.format(mode=dProcModes[mode], obs=count))
 
-    # PLOT THE COORDINATES UTM/ELLH (DIFFERENCE WITH WEIGHTED AVERAGE) VS TIME
-    for i, (crd, crd_sd, dutm, crd_color, error_color) in enumerate(zip(UTM, dNEU, dUTM, rgb_colors, rgb_error_colors)):
+    # PLOT THE COORDINATES UTMcrd/ELLH (DIFFERENCE WITH WEIGHTED AVERAGE) VS TIME
+    for i, (crd, crd_sd, dutm, crd_color, error_color) in enumerate(zip(UTMcrd, dNEU, dUTMcrd, rgb_colors, rgb_error_colors)):
 
         ax1.errorbar(x=df_tmp['DT'], y=df_tmp[dutm], yerr=df_tmp[crd_sd], linestyle='none', capthick=1, markersize=1, fmt='o', color=crd_color, ecolor=error_color, elinewidth=3, capsize=0, label=crd)
 
@@ -270,7 +270,7 @@ for mode, count in proc_modes.iteritems():
         ax1.annotate(crd_txt, xy=(1, 1), xycoords='axes fraction', xytext=(0, 35 - i * 15), textcoords='offset pixels', horizontalalignment='right', verticalalignment='bottom', fontweight='bold', fontsize='small', fontname='Courier', family='monospace')
 
     # name the titles and so on
-    ax1.set_title('UTM & Orto H')
+    ax1.set_title('UTMcrd & Orto H')
     ax1.set_xlabel('')
     ax1.set_ylabel('Coordinate difference [m]')
     ax1.legend(prop=legend_font, bbox_to_anchor=(1.02, 1), loc='upper left', markerscale=3)
